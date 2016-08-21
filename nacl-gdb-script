@@ -1,0 +1,7 @@
+target remote localhost:4014
+nacl-manifest pnacl/Debug/golive.nmf
+remote get nexe nexe
+file nexe
+remote get irt irt
+nacl-irt irt
+c
