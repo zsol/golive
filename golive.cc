@@ -48,6 +48,8 @@ class GoLiveInstance : public pp::Instance {
   pp::MediaStreamAudioTrack audio_track_;
   pp::CompletionCallbackFactory<GoLiveInstance> callback_factory_;
 
+  std::string url_;
+
   AVFormatContext* av_fmt_octx_;
 
   AVFrame* current_av_frame_;
@@ -84,9 +86,16 @@ class GoLiveInstance : public pp::Instance {
     if (command == "stream") {
       pp::Var var_track = var_dictionary_message.Get("video_track");
       if (!var_track.is_resource()) {
+        Log("invalid video track");
         return;
       }
       video_track_ = pp::MediaStreamVideoTrack(var_track.AsResource());
+      pp::Var var_url = var_dictionary_message.Get("url");
+      if (!var_url.is_string()) {
+        Log("invalid url");
+        return;
+      }
+      url_ = var_url.AsString();
       video_track_.GetFrame(
         callback_factory_.NewCallbackWithOutput(
           &GoLiveInstance::OnFirstFrame
@@ -145,7 +154,7 @@ class GoLiveInstance : public pp::Instance {
 
     current_av_frame_ = av_frame_alloc();
 
-    InitializeRtmp(width, height, "rtmp://localhost/live/test");
+    InitializeRtmp(width, height, url_.c_str());
 
     video_track_.GetFrame(callback_factory_.NewCallbackWithOutput(
       &GoLiveInstance::OnFrame

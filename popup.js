@@ -74,7 +74,8 @@ function goOnClick() {
           document.getElementById('video').appendChild(video);
           common.naclModule.postMessage({
             command: "stream",
-            video_track: stream.getVideoTracks()[0]
+            video_track: stream.getVideoTracks()[0],
+            url: document.getElementById('url').value
           });
         },
         function(err) {
