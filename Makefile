@@ -8,7 +8,7 @@ CONFIG = Debug
 
 include $(NACL_SDK_ROOT)/tools/common.mk
 
-LIBS = ppapi_cpp ppapi pthread avformat avcodec avutil nacl_io # mp3lame vorbis theora vpx swscale swresample vorbisenc ogg
+LIBS = avformat avcodec avutil x264 ppapi_cpp ppapi pthread nacl_io
 
 TARGET = golive
 

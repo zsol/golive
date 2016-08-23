@@ -4,4 +4,4 @@ remote get nexe nexe
 file nexe
 remote get irt irt
 nacl-irt irt
-c
+#c
