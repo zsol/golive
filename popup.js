@@ -52,7 +52,6 @@ function renderStatus(statusText) {
 }
 
 function goOnClick() {
-  console.log('clicked');
   chrome.desktopCapture.chooseDesktopMedia(
     ["screen", "window", "tab"],
     null,
@@ -61,17 +60,14 @@ function goOnClick() {
         video: {
           mandatory: {
             chromeMediaSource: "desktop",
-            chromeMediaSourceId: streamId
+            chromeMediaSourceId: streamId,
+            maxWidth: screen.width,
+            maxHeight: screen.height
           }
         }
       }
       navigator.webkitGetUserMedia(constraints,
         function(stream) {
-          console.log('yay');
-          console.log(stream);
-          let video = document.createElement('video');
-          video.src = window.URL.createObjectURL(stream);
-          document.getElementById('video').appendChild(video);
           common.naclModule.postMessage({
             command: "stream",
             video_track: stream.getVideoTracks()[0],

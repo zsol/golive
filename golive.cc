@@ -190,6 +190,7 @@ class GoLiveInstance : public pp::Instance {
       Log("Unable to find encoder");
       return;
     }
+
     AVStream* stream = avformat_new_stream(av_fmt_octx_, codec);
     stream->codec->codec_id = codec->id;
     stream->codec->bit_rate = 1000000;
