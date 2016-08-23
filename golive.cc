@@ -4,10 +4,6 @@
 
 #include "ppapi/cpp/instance.h"
 #include "ppapi/cpp/module.h"
-#include "ppapi/cpp/file_io.h"
-#include "ppapi/cpp/file_ref.h"
-#include "ppapi/cpp/file_system.h"
-#include "ppapi/c/ppb_file_io.h"
 #include "ppapi/cpp/var.h"
 #include "ppapi/cpp/var_dictionary.h"
 #include "ppapi/cpp/media_stream_video_track.h"
@@ -15,7 +11,6 @@
 #include "ppapi/cpp/video_frame.h"
 #include "ppapi/utility/completion_callback_factory.h"
 #include "ppapi/utility/threading/simple_thread.h"
-#include "ppapi/cpp/video_encoder.h"
 #include "ppapi/cpp/size.h"
 #include "nacl_io/nacl_io.h"
 
@@ -53,10 +48,6 @@ class GoLiveInstance : public pp::Instance {
   pp::MediaStreamAudioTrack audio_track_;
   pp::CompletionCallbackFactory<GoLiveInstance> callback_factory_;
 
-  pp::FileSystem file_system_;
-  pp::FileIO file_io_;
-  pp::FileRef file_ref_;
-
   AVFormatContext* av_fmt_octx_;
 
   AVFrame* current_av_frame_;
@@ -91,66 +82,44 @@ class GoLiveInstance : public pp::Instance {
     std::string command = var_dictionary_message.Get("command").AsString();
 
     if (command == "stream") {
-      Log(pp::Var("Got stream"));
       pp::Var var_track = var_dictionary_message.Get("video_track");
       if (!var_track.is_resource()) {
         return;
       }
       video_track_ = pp::MediaStreamVideoTrack(var_track.AsResource());
-      StartConversion();
+      video_track_.GetFrame(
+        callback_factory_.NewCallbackWithOutput(
+          &GoLiveInstance::OnFirstFrame
+        )
+      );
     } else {
       Log(pp::Var("Invalid command: " + command));
       return;
     }
   }
 
-  void OnFileSystemOpen(int32_t open_result) {
-    if (open_result != PP_OK) {
-      std::stringstream ss;
-      ss << "Failed to open file system: " << open_result;
-      Log(pp::Var(ss.str()));
-      return;
-    }
-    file_ref_ = pp::FileRef(file_system_, "/frame");
-    file_io_ = pp::FileIO(this);
-
-    if (file_system_.is_null()) {
-      std::stringstream ss;
-      ss << "File ref is null";
-      Log(pp::Var(ss.str()));
+  void OnFirstFrame(int32_t res, const pp::VideoFrame frame) {
+    pp::Size s;
+    if (!frame.GetSize(&s)) {
+      Log("failed getting size");
+      video_track_.GetFrame(
+        callback_factory_.NewCallbackWithOutput(
+          &GoLiveInstance::OnFirstFrame
+        )
+      );
       return;
     }
 
-    if (file_ref_.is_null()) {
-      std::stringstream ss;
-      ss << "File ref is null";
-      Log(pp::Var(ss.str()));
-      return;
-    }
-
-    if (file_io_.is_null()) {
-      std::stringstream ss;
-      ss << "File io is null";
-      Log(pp::Var(ss.str()));
-      return;
-    }
-
-    file_io_.Open(
-      file_ref_,
-      PP_FILEOPENFLAG_WRITE | PP_FILEOPENFLAG_CREATE | PP_FILEOPENFLAG_TRUNCATE,
-      callback_factory_.NewCallback(&GoLiveInstance::OnFileOpen)
+    bg_thread_.message_loop().PostWork(
+      callback_factory_.NewCallback(
+        &GoLiveInstance::StartConversion,
+        s.width(),
+        s.height()
+      )
     );
   }
 
-  void OnFileOpen(int32_t open_result) {
-    if (open_result != PP_OK) {
-      std::stringstream ss;
-      ss << "Failed to open file: " << open_result;
-      Log(pp::Var(ss.str()));
-    }
-  }
-
-  virtual void StartConversion() {
+  void StartConversion(int32_t, int width, int height) {
     av_log_set_callback(&log_callback);
     static_log_ctx.inst = this;
     av_log_set_level(AV_LOG_DEBUG);
@@ -176,28 +145,14 @@ class GoLiveInstance : public pp::Instance {
 
     current_av_frame_ = av_frame_alloc();
 
-    file_system_ = pp::FileSystem(this, PP_FILESYSTEMTYPE_LOCALPERSISTENT);
-    file_system_.Open(
-      1024*1024*10,
-      callback_factory_.NewCallback(&GoLiveInstance::OnFileSystemOpen)
-    );
-
-    bg_thread_.message_loop().PostWork(
-      callback_factory_.NewCallback(&GoLiveInstance::InitializeRtmp)
-    );
+    InitializeRtmp(width, height, "rtmp://localhost/live/test");
 
     video_track_.GetFrame(callback_factory_.NewCallbackWithOutput(
       &GoLiveInstance::OnFrame
     ));
   }
 
-  void InitializeRtmp(int32_t res) {
-    const char* url = "rtmp://localhost/live/test";
-    if (res != PP_OK) {
-      LogError(res, "error scheduling rtmp initialization");
-      return;
-    }
-    Log("initializing rtmp");
+  void InitializeRtmp(int width, int height, const char* url) {
     AVOutputFormat* ofmt = av_guess_format("flv", nullptr, nullptr);
     int ret = avformat_alloc_output_context2(
       &av_fmt_octx_,
@@ -229,8 +184,8 @@ class GoLiveInstance : public pp::Instance {
     AVStream* stream = avformat_new_stream(av_fmt_octx_, codec);
     stream->codec->codec_id = codec->id;
     stream->codec->bit_rate = 1000000;
-    stream->codec->height = 640;
-    stream->codec->width = 480;
+    stream->codec->height = height;
+    stream->codec->width = width;
     stream->codec->pix_fmt = AV_PIX_FMT_YUV420P;
     if (ofmt->flags & AVFMT_GLOBALHEADER) {
       stream->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;
