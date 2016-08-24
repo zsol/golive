@@ -54,7 +54,6 @@ class GoLiveInstance : public pp::Instance {
 
   AVFrame* current_av_frame_;
   bool new_frame_available_;
-  int64_t pts_;
 
   pp::SimpleThread bg_thread_;
 
@@ -63,7 +62,6 @@ class GoLiveInstance : public pp::Instance {
       : pp::Instance(instance),
         callback_factory_(this),
         new_frame_available_(false),
-        pts_(0),
         bg_thread_(this) {
           nacl_io_init_ppapi(instance, pp::Module::Get()->get_browser_interface());
 
@@ -232,7 +230,10 @@ class GoLiveInstance : public pp::Instance {
     src.GetSize(&frame_size);
     current_av_frame_->width = frame_size.width();
     current_av_frame_->height = frame_size.height();
-    current_av_frame_->pts = pts_++;
+    int64_t ts_millisec = round(src.GetTimestamp() * 1000);
+    const AVRational thousandth = {1, 1000};
+    const AVRational spf = {1, 30};
+    current_av_frame_->pts = av_rescale_q(ts_millisec, thousandth, spf);
     if (current_av_frame_->buf[0] == 0) {
       int ret = av_frame_get_buffer(current_av_frame_, 32);
       if (ret < 0) {
