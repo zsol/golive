@@ -14,7 +14,8 @@
   "permissions": [
     "desktopCapture",
     "unlimitedStorage",
-    {"socket": ["resolve-host", "tcp-connect"]}
+    {"socket": ["resolve-host", "tcp-connect"]},
+    "webview"
   ],
   "sockets": {
     "tcp": {

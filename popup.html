@@ -17,9 +17,20 @@
     </style>
 
     <script src="common.js"></script>
+    <script src="secret.js"></script>
     <script src="popup.js"></script>
   </head>
-  <body data-name="golive" data-tools="pnacl" data-configs="Debug" data-path="{tc}/{config}">
+  <body data-name="golive"
+        data-tools="pnacl"
+        data-configs="Debug"
+        data-path="{tc}/{config}"
+        >
+    <webview id="wv"
+          autosize="true"
+          style="width:100%; height:600px"
+          minwidth="600"
+          minheight="600"
+          ></webview>
     <input type="text" id="url" value="rtmp://localhost/live/test" />
     <input type="button" id="go" value="Go Live" />
     <div id="video"></div>
