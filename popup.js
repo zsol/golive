@@ -1,3 +1,5 @@
+let fb_at = null;
+
 function goOnClick() {
   chrome.desktopCapture.chooseDesktopMedia(
     ["screen", "window", "tab"],
@@ -64,10 +66,12 @@ function gotAccessToken() {
   let resp_obj = JSON.parse(this.response);
   let tok = resp_obj['access_token'];
   if (tok !== undefined) {
+    fb_at = tok;
     let req = new XMLHttpRequest();
-    req.open("POST", "https://graph.facebook.com/v2.7/me/live_videos?access_token=" + tok);
+    req.open("POST", "https://graph.facebook.com/v2.7/me/live_videos");
     req.addEventListener('load', onLiveVideo);
-    req.send();
+    let params = "access_token=" + fb_at + "&published=false";
+    req.send(params);
   }
 }
 
@@ -77,7 +81,18 @@ function onLiveVideo() {
   let stream_url = resp_obj['stream_url'];
   if (stream_url !== undefined) {
     document.getElementById('url').value = stream_url;
+    let stream_id = resp_obj['id'];
+    let req = new XMLHttpRequest();
+    let params = "access_token="+fb_at+"&fields=preview_url";
+    req.open("GET", "https://graph.facebook.com/v2.7/" + stream_id + "?" + params);
+    req.addEventListener('load', onStreamDetails);
+    req.send();
   }
+}
+
+function onStreamDetails() {
+  let resp_obj = JSON.parse(this.response);
+  console.log('stream details', resp_obj);
 }
 
 function init() {
