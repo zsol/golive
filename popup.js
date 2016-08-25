@@ -1,10 +1,13 @@
 let fb_at = null;
+let desktop_media_request_id = null;
+let video_track = null;
 
 function goOnClick() {
-  chrome.desktopCapture.chooseDesktopMedia(
+  desktop_media_request_id = chrome.desktopCapture.chooseDesktopMedia(
     ["screen", "window", "tab"],
     null,
     function(streamId) {
+      desktop_media_request_id = null;
       let constraints = {
         video: {
           mandatory: {
@@ -17,11 +20,17 @@ function goOnClick() {
       }
       navigator.webkitGetUserMedia(constraints,
         function(stream) {
+          video_track = stream.getVideoTracks()[0];
+          video_track.addEventListener('ended', stopOnClick);
           common.naclModule.postMessage({
             command: "stream",
-            video_track: stream.getVideoTracks()[0],
+            video_track: video_track,
             url: document.getElementById('url').value
           });
+          let gobutton = document.getElementById('go');
+          gobutton.removeEventListener('click', goOnClick);
+          gobutton.addEventListener('click', stopOnClick);
+          gobutton.value = "Stop Stream";
         },
         function(err) {
           console.log('nay');
@@ -29,6 +38,20 @@ function goOnClick() {
         });
     }
   );
+}
+
+function stopOnClick() {
+  if (desktop_media_request_id !== null) {
+    chrome.desktopCapture.cancelChooseDesktopMedia(desktop_media_request_id);
+  }
+  if (video_track !== null) {
+    video_track.stop();
+  }
+  common.naclModule.postMessage({command: "stop_stream"});
+  let gobutton = document.getElementById('go');
+  gobutton.removeEventListener('click', stopOnClick);
+  gobutton.addEventListener('click', goOnClick);
+  gobutton.value = "Go Live";
 }
 
 function wvOnInitialLoad() {

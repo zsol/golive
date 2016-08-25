@@ -51,6 +51,8 @@ class GoLiveInstance : public pp::Instance {
   std::string url_;
 
   AVFormatContext* av_fmt_octx_;
+  bool octx_open_;
+  bool is_encoding_;
 
   AVFrame* current_av_frame_;
   bool new_frame_available_;
@@ -61,16 +63,41 @@ class GoLiveInstance : public pp::Instance {
   explicit GoLiveInstance(PP_Instance instance)
       : pp::Instance(instance),
         callback_factory_(this),
+        octx_open_(false),
+        is_encoding_(false),
         new_frame_available_(false),
         bg_thread_(this) {
           nacl_io_init_ppapi(instance, pp::Module::Get()->get_browser_interface());
-
+          av_log_set_callback(&log_callback);
+          static_log_ctx.inst = this;
+          av_log_set_level(AV_LOG_DEBUG);
+      #if 1
+          extern AVOutputFormat ff_h264_muxer;
+          av_register_output_format(&ff_h264_muxer);
+          extern URLProtocol ff_rtmp_protocol;
+          ffurl_register_protocol(&ff_rtmp_protocol);
+          extern URLProtocol ff_tcp_protocol;
+          ffurl_register_protocol(&ff_tcp_protocol);
+          extern AVCodec ff_libx264_encoder;
+          avcodec_register(&ff_libx264_encoder);
+          extern AVCodec ff_mpeg4_encoder;
+          avcodec_register(&ff_mpeg4_encoder);
+          extern AVOutputFormat ff_mp4_muxer;
+          av_register_output_format(&ff_mp4_muxer);
+          extern AVOutputFormat ff_flv_muxer;
+          av_register_output_format(&ff_flv_muxer);
+      #else
+          av_register_all();
+      #endif
+          avformat_network_init();
           pp::VarDictionary dict;
           dict.Set("type", "init");
           PostMessage(dict);
           bg_thread_.Start();
         }
   virtual ~GoLiveInstance() {
+    StopConversion();
+    avformat_network_deinit();
   }
 
   virtual void HandleMessage(const pp::Var& var_message) {
@@ -101,6 +128,8 @@ class GoLiveInstance : public pp::Instance {
           &GoLiveInstance::OnFirstFrame
         )
       );
+    } else if (command == "stop_stream") {
+      StopConversion();
     } else {
       Log(pp::Var("Invalid command: " + command));
       return;
@@ -129,36 +158,34 @@ class GoLiveInstance : public pp::Instance {
   }
 
   void StartConversion(int32_t, int width, int height) {
-    av_log_set_callback(&log_callback);
-    static_log_ctx.inst = this;
-    av_log_set_level(AV_LOG_DEBUG);
-#if 1
-    extern AVOutputFormat ff_h264_muxer;
-    av_register_output_format(&ff_h264_muxer);
-    extern URLProtocol ff_rtmp_protocol;
-    ffurl_register_protocol(&ff_rtmp_protocol);
-    extern URLProtocol ff_tcp_protocol;
-    ffurl_register_protocol(&ff_tcp_protocol);
-    extern AVCodec ff_libx264_encoder;
-    avcodec_register(&ff_libx264_encoder);
-    extern AVCodec ff_mpeg4_encoder;
-    avcodec_register(&ff_mpeg4_encoder);
-    extern AVOutputFormat ff_mp4_muxer;
-    av_register_output_format(&ff_mp4_muxer);
-    extern AVOutputFormat ff_flv_muxer;
-    av_register_output_format(&ff_flv_muxer);
-#else
-    av_register_all();
-#endif
-    avformat_network_init(); // TODO: deinit
-
     current_av_frame_ = av_frame_alloc();
 
     InitializeRtmp(width, height, url_.c_str());
 
+    is_encoding_ = true;
     video_track_.GetFrame(callback_factory_.NewCallbackWithOutput(
       &GoLiveInstance::OnFrame
     ));
+  }
+
+  void StopConversion() {
+    is_encoding_ = false;
+    while (new_frame_available_) {
+      usleep(10 * 1000);
+    }
+    av_write_trailer(av_fmt_octx_);
+    if (av_fmt_octx_->streams[0]) {
+      AVCodecContext* cctx = av_fmt_octx_->streams[0]->codec;
+      if (avcodec_is_open(cctx)) {
+        avcodec_close(cctx);
+      }
+    }
+    if (octx_open_) {
+      avio_closep(&av_fmt_octx_->pb);
+      avformat_free_context(av_fmt_octx_);
+      av_fmt_octx_ = nullptr;
+      octx_open_ = false;
+    }
   }
 
   void InitializeRtmp(int width, int height, const char* url) {
@@ -184,6 +211,7 @@ class GoLiveInstance : public pp::Instance {
       LogError(errno, "errno");
       return;
     }
+    octx_open_ = true;
 
     AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_H264);
     if (codec == nullptr) {
@@ -202,6 +230,7 @@ class GoLiveInstance : public pp::Instance {
     }
     stream->codec->time_base = stream->time_base = (AVRational){1, 30};
     stream->codec->gop_size = 15;
+    av_fmt_octx_->strict_std_compliance = FF_COMPLIANCE_UNOFFICIAL;
     ret = avcodec_open2(stream->codec, codec, nullptr);
     if (ret < 0) {
       Log("error during opening codec");
@@ -318,6 +347,9 @@ class GoLiveInstance : public pp::Instance {
   void NoOp(int32_t) const {}
 
   void OnFrame(int32_t result, pp::VideoFrame frame) {
+    if (!is_encoding_) {
+      return;
+    }
     CopyVideoFrame(frame);
     bg_thread_.message_loop().PostWork(
       callback_factory_.NewCallback(&GoLiveInstance::EncodeFrame)
