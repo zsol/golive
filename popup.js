@@ -107,6 +107,13 @@ function init() {
   wv.src = "https://www.facebook.com/dialog/oauth?client_id=1072171686192806&scope=publish_actions&redirect_uri=https://www.facebook.com/connect/login_success.html";
 }
 
+function avLog(msg) {
+  let log = document.getElementById('av_log');
+  log.style.visibility = "visible";
+  log.value += msg;
+  log.scrollTop = log.scrollHeight;
+}
+
 // This function is called by common.js when the NaCl module is
 // loaded.
 function moduleDidLoad() {
@@ -116,11 +123,24 @@ function moduleDidLoad() {
 // This function is called by common.js when a message is received from the
 // NaCl module.
 function handleMessage(message) {
-  if (message.type === 'message') {
-    console.log('nacl', message.data);
-  } else {
+  if (message.type !== 'message') {
     console.log(message);
+    return;
+  }
+  if (message.data.type === undefined) {
+    console.log('nacl', message.data);
+    return;
+  }
+  if (message.data.type === 'init') {
+    init();
+    return;
+  }
+  if (message.data.type === 'av_log') {
+    avLog(message.data.message);
+    return;
+  }
+  if (message.data.type === 'log') {
+    console.log(message.data.message);
+    return;
   }
 }
-
-document.addEventListener('DOMContentLoaded', init);

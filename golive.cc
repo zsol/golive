@@ -65,7 +65,9 @@ class GoLiveInstance : public pp::Instance {
         bg_thread_(this) {
           nacl_io_init_ppapi(instance, pp::Module::Get()->get_browser_interface());
 
-          Log("ready");
+          pp::VarDictionary dict;
+          dict.Set("type", "init");
+          PostMessage(dict);
           bg_thread_.Start();
         }
   virtual ~GoLiveInstance() {
@@ -168,7 +170,7 @@ class GoLiveInstance : public pp::Instance {
       url
     );
     if (ret < 0) {
-      LogError(ret, av_err2str(ret));
+      AVLogError(ret);
       return;
     }
 
@@ -178,8 +180,8 @@ class GoLiveInstance : public pp::Instance {
       AVIO_FLAG_READ_WRITE
     );
     if (ret < 0) {
-      LogError(ret, av_err2str(ret));
-      LogError(errno, "errno: ");
+      AVLogError(ret);
+      LogError(errno, "errno");
       return;
     }
 
@@ -203,7 +205,7 @@ class GoLiveInstance : public pp::Instance {
     ret = avcodec_open2(stream->codec, codec, nullptr);
     if (ret < 0) {
       Log("error during opening codec");
-      LogError(ret, av_err2str(ret));
+      AVLogError(ret);
       return;
     }
     avformat_write_header(av_fmt_octx_, nullptr);
@@ -220,7 +222,7 @@ class GoLiveInstance : public pp::Instance {
         av_frame_is_writable(current_av_frame_) <= 0) {
       int ret = av_frame_make_writable(current_av_frame_);
       if (ret < 0) {
-        LogError(ret, av_err2str(ret));
+        AVLogError(ret);
         Log("dropped frame");
         return -1;
       }
@@ -238,7 +240,7 @@ class GoLiveInstance : public pp::Instance {
       // assuming both frames are aligned to 4
       int ret = av_frame_get_buffer(current_av_frame_, 4);
       if (ret < 0) {
-        LogError(ret, av_err2str(ret));
+        AVLogError(ret);
         return -2;
       }
     }
@@ -278,7 +280,7 @@ class GoLiveInstance : public pp::Instance {
     );
     if (ret < 0) {
       Log("Error during encoding frame");
-      LogError(ret, av_err2str(ret));
+      AVLogError(ret);
       new_frame_available_ = false;
       return;
     }
@@ -290,7 +292,7 @@ class GoLiveInstance : public pp::Instance {
       ret = av_interleaved_write_frame(av_fmt_octx_, &pkt);
       if (ret < 0) {
         Log("Error during writing encoded frame");
-        LogError(ret, av_err2str(ret));
+        AVLogError(ret);
         new_frame_available_ = false;
         return;
       }
@@ -313,13 +315,29 @@ class GoLiveInstance : public pp::Instance {
   }
 
   void Log(const pp::Var& msg) {
-    PostMessage(msg);
+    pp::VarDictionary d;
+    d.Set("type", "log");
+    d.Set("message", msg);
+    PostMessage(d);
+  }
+
+  void AVLog(const pp::Var& msg) {
+    pp::VarDictionary d;
+    d.Set("type", "av_log");
+    d.Set("message", msg);
+    PostMessage(d);
   }
 
   template <typename T> void LogError(const T& error, const std::string& msg) {
     std::stringstream ss;
-    ss << msg << error;
+    ss << msg << ": " << error;
     Log(pp::Var(ss.str()));
+  }
+
+  void AVLogError(int64_t errnum) {
+    std::stringstream ss;
+    ss << av_err2str(errnum) << ": " << errnum;
+    AVLog(pp::Var(ss.str()));
   }
 };
 
@@ -346,6 +364,6 @@ namespace {
    char line[2048];
    int print_prefix;
    av_log_format_line(ctx, level, fmt, args, line, 2048, &print_prefix);
-   static_log_ctx.inst->PostMessage(pp::Var(std::string(line)));
+   static_log_ctx.inst->AVLog(pp::Var(std::string(line)));
  }
 }
