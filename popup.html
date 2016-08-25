@@ -31,9 +31,17 @@
           minwidth="600"
           minheight="600"
           ></webview>
-    <input type="text" id="url" value="rtmp://localhost/live/test" />
-    <input type="button" id="go" value="Go Live" />
-    <div id="video"></div>
+    <div id="controls">
+      <input type="text" id="url" value="rtmp://localhost/live/test" />
+      <input type="button" id="go" value="Go Live" />
+    </div>
+    <textarea id="debug_info"
+          style="visibility:hidden; width:99%"
+          rows="10"
+          cols="50"
+          wrap="hard"
+          readonly="true">
+    </textarea>
     <div id="listener"></div>
   </body>
 </html>

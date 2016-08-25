@@ -70,7 +70,7 @@ function gotAccessToken() {
     let req = new XMLHttpRequest();
     req.open("POST", "https://graph.facebook.com/v2.7/me/live_videos");
     req.addEventListener('load', onLiveVideo);
-    let params = "access_token=" + fb_at + "&published=false";
+    let params = "access_token=" + fb_at;
     req.send(params);
   }
 }
@@ -93,6 +93,10 @@ function onLiveVideo() {
 function onStreamDetails() {
   let resp_obj = JSON.parse(this.response);
   console.log('stream details', resp_obj);
+  let debug_info = document.getElementById('debug_info');
+  debug_info.value = resp_obj['preview_url'];
+  debug_info.style.visibility = "visible";
+
 }
 
 function init() {

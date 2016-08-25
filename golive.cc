@@ -235,7 +235,8 @@ class GoLiveInstance : public pp::Instance {
     const AVRational spf = {1, 30};
     current_av_frame_->pts = av_rescale_q(ts_millisec, thousandth, spf);
     if (current_av_frame_->buf[0] == 0) {
-      int ret = av_frame_get_buffer(current_av_frame_, 32);
+      // assuming both frames are aligned to 4
+      int ret = av_frame_get_buffer(current_av_frame_, 4);
       if (ret < 0) {
         LogError(ret, av_err2str(ret));
         return -2;
@@ -243,30 +244,22 @@ class GoLiveInstance : public pp::Instance {
     }
 
     uint8_t* ppframe = reinterpret_cast<uint8_t*>(src.GetDataBuffer());
-    size_t width = frame_size.width();
     size_t height = frame_size.height();
+    size_t y_stride = current_av_frame_->linesize[0] * height;
     /* Y */
-    memcpy(
-      current_av_frame_->data[0],
-      ppframe,
-      width * height
-    );
-    ppframe += width * height;
+    uint8_t* dst = current_av_frame_->data[0];
+    memcpy(dst, ppframe, y_stride);
+    ppframe += y_stride;
 
-    width /= 2;
-    height /= 2;
-    /* Cb and Cr */
-    memcpy(
-      current_av_frame_->data[1],
-      ppframe,
-      width * height
-    );
-    ppframe += width * height;
-    memcpy(
-      current_av_frame_->data[2],
-      ppframe,
-      width * height
-    );
+    size_t uv_stride = current_av_frame_->linesize[1] * height / 2;
+    /* U */
+    dst = current_av_frame_->data[1];
+    memcpy(dst, ppframe, uv_stride);
+    ppframe += uv_stride;
+
+    /* V */
+    dst = current_av_frame_->data[2];
+    memcpy(dst, ppframe, uv_stride);
 
     new_frame_available_ = true;
     return PP_OK;
