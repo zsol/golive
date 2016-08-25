@@ -237,8 +237,7 @@ class GoLiveInstance : public pp::Instance {
     const AVRational spf = {1, 30};
     current_av_frame_->pts = av_rescale_q(ts_millisec, thousandth, spf);
     if (current_av_frame_->buf[0] == 0) {
-      // assuming both frames are aligned to 4
-      int ret = av_frame_get_buffer(current_av_frame_, 4);
+      int ret = av_frame_get_buffer(current_av_frame_, 16);
       if (ret < 0) {
         AVLogError(ret);
         return -2;
@@ -246,22 +245,37 @@ class GoLiveInstance : public pp::Instance {
     }
 
     uint8_t* ppframe = reinterpret_cast<uint8_t*>(src.GetDataBuffer());
+    size_t databuffersize = src.GetDataBufferSize();
     size_t height = frame_size.height();
-    size_t y_stride = current_av_frame_->linesize[0] * height;
+    size_t width = frame_size.width();
+    if (databuffersize != width * height + 2 * (width / 2) * (height / 2)) {
+      Log("Unexpected Chrome frame buffer size, bad things will happen");
+    }
+    size_t y_stride = current_av_frame_->linesize[0];
     /* Y */
     uint8_t* dst = current_av_frame_->data[0];
-    memcpy(dst, ppframe, y_stride);
-    ppframe += y_stride;
+    for (int i = 0; i < height; ++i) {
+      memcpy(dst, ppframe, width);
+      ppframe += width;
+      dst += y_stride;
+    }
 
-    size_t uv_stride = current_av_frame_->linesize[1] * height / 2;
+    size_t uv_stride = current_av_frame_->linesize[1];
     /* U */
     dst = current_av_frame_->data[1];
-    memcpy(dst, ppframe, uv_stride);
-    ppframe += uv_stride;
+    for (int i = 0; i < height / 2; ++i) {
+      memcpy(dst, ppframe, width / 2);
+      ppframe += width / 2;
+      dst += uv_stride;
+    }
 
     /* V */
     dst = current_av_frame_->data[2];
-    memcpy(dst, ppframe, uv_stride);
+    for (int i = 0; i < height / 2; ++i) {
+      memcpy(dst, ppframe, width / 2);
+      ppframe += width / 2;
+      dst += uv_stride;
+    }
 
     new_frame_available_ = true;
     return PP_OK;
