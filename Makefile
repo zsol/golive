@@ -1,3 +1,4 @@
+THIS_FILE := $(lastword $(MAKEFILE_LIST))
 VALID_TOOLCHAINS := pnacl glibc clang-newlib mac
 
 TOOLCHAIN = pnacl
@@ -29,3 +30,8 @@ $(eval $(call LINK_RULE,$(TARGET),$(SOURCES),$(LIBS),$(DEPS)))
 endif
 
 $(eval $(call NMF_RULE,$(TARGET),))
+
+.PHONY: package
+
+package:
+	zip -x '*.png' -9 golive.zip * pnacl/Release/golive.nmf pnacl/Release/golive.pexe 
