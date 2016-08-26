@@ -4,7 +4,7 @@ TOOLCHAIN = pnacl
 
 NACL_SDK_ROOT ?= $(abspath $(CURDIR)/nacl_sdk_root)
 
-CONFIG = Debug
+CONFIG = Release
 
 include $(NACL_SDK_ROOT)/tools/common.mk
 
