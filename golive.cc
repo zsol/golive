@@ -229,7 +229,8 @@ class GoLiveInstance : public pp::Instance {
       stream->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;
     }
     stream->codec->time_base = stream->time_base = (AVRational){1, 30};
-    stream->codec->gop_size = 15;
+    stream->codec->gop_size = 10;
+    stream->codec->keyint_min = 5;
     av_fmt_octx_->strict_std_compliance = FF_COMPLIANCE_UNOFFICIAL;
     ret = avcodec_open2(stream->codec, codec, nullptr);
     if (ret < 0) {
