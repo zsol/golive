@@ -12,7 +12,9 @@
   },
 
   "permissions": [
+    "audioCapture",
     "desktopCapture",
+    "videoCapture",
     "unlimitedStorage",
     {"socket": ["resolve-host", "tcp-connect"]},
     "webview"

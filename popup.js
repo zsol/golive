@@ -1,10 +1,11 @@
 let fb_at = null;
 let desktop_media_request_id = null;
 let video_track = null;
+let audio_track = null;
 
 function goOnClick() {
   desktop_media_request_id = chrome.desktopCapture.chooseDesktopMedia(
-    ["screen", "window", "tab"],
+    ["screen", "window", "tab", "audio"],
     null,
     function(streamId) {
       desktop_media_request_id = null;
@@ -22,9 +23,11 @@ function goOnClick() {
         function(stream) {
           video_track = stream.getVideoTracks()[0];
           video_track.addEventListener('ended', stopOnClick);
+          audio_track = stream.getAudioTracks()[0];
           common.naclModule.postMessage({
             command: "stream",
             video_track: video_track,
+            audio_track: audio_track,
             url: document.getElementById('url').value
           });
           let gobutton = document.getElementById('go');
@@ -127,7 +130,8 @@ function init() {
   let wv = document.getElementById('wv');
   wv.addEventListener('contentload', wvOnInitialLoad);
   wv.addEventListener('loadredirect', wvOnRedirect);
-  wv.src = "https://www.facebook.com/dialog/oauth?client_id=1072171686192806&scope=publish_actions&redirect_uri=https://www.facebook.com/connect/login_success.html";
+  wv.remove()
+  //wv.src = "https://www.facebook.com/dialog/oauth?client_id=1072171686192806&scope=publish_actions&redirect_uri=https://www.facebook.com/connect/login_success.html";
 }
 
 function avLog(msg) {

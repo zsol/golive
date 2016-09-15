@@ -9,6 +9,7 @@
 #include "ppapi/cpp/media_stream_video_track.h"
 #include "ppapi/cpp/media_stream_audio_track.h"
 #include "ppapi/cpp/video_frame.h"
+#include "ppapi/cpp/audio_buffer.h"
 #include "ppapi/utility/completion_callback_factory.h"
 #include "ppapi/utility/threading/simple_thread.h"
 #include "ppapi/cpp/size.h"
@@ -17,7 +18,10 @@
 extern "C" {
 #include "libavformat/avio.h"
 #include "libavutil/mem.h"
+#include "libavutil/opt.h"
 #include "libavformat/avformat.h"
+#include "libavfilter/avfilter.h"
+#include "libavfilter/buffersink.h"
 
 #include <math.h>
 
@@ -56,6 +60,9 @@ class GoLiveInstance : public pp::Instance {
 
   AVFrame* current_av_frame_;
   bool new_frame_available_;
+  AVFilterGraph* filter_graph_;
+  AVFilterInOut* filter_outputs_;
+  AVFrame* current_av_audio_frame_;
 
   pp::SimpleThread bg_thread_;
 
@@ -71,7 +78,7 @@ class GoLiveInstance : public pp::Instance {
           av_log_set_callback(&log_callback);
           static_log_ctx.inst = this;
           av_log_set_level(AV_LOG_DEBUG);
-      #if 1
+      #if 0
           extern AVOutputFormat ff_h264_muxer;
           av_register_output_format(&ff_h264_muxer);
           extern URLProtocol ff_rtmp_protocol;
@@ -117,6 +124,12 @@ class GoLiveInstance : public pp::Instance {
         return;
       }
       video_track_ = pp::MediaStreamVideoTrack(var_track.AsResource());
+      var_track = var_dictionary_message.Get("audio_track");
+      if (var_track.is_resource()) {
+        audio_track_ = pp::MediaStreamAudioTrack(var_track.AsResource());
+      } else {
+        Log("no audio track");
+      }
       pp::Var var_url = var_dictionary_message.Get("url");
       if (!var_url.is_string()) {
         Log("invalid url");
@@ -136,9 +149,11 @@ class GoLiveInstance : public pp::Instance {
     }
   }
 
-  void OnFirstFrame(int32_t res, const pp::VideoFrame frame) {
+  void OnFirstFrame(int32_t, const pp::VideoFrame frame) {
     pp::Size s;
-    if (!frame.GetSize(&s)) {
+    bool res = frame.GetSize(&s);
+    video_track_.RecycleFrame(frame);
+    if (!res) {
       Log("failed getting size");
       video_track_.GetFrame(
         callback_factory_.NewCallbackWithOutput(
@@ -159,12 +174,13 @@ class GoLiveInstance : public pp::Instance {
 
   void StartConversion(int32_t, int width, int height) {
     current_av_frame_ = av_frame_alloc();
+    current_av_audio_frame_ = av_frame_alloc();
 
     InitializeRtmp(width, height, url_.c_str());
 
     is_encoding_ = true;
     video_track_.GetFrame(callback_factory_.NewCallbackWithOutput(
-      &GoLiveInstance::OnFrame
+      &GoLiveInstance::OnVideoFrame
     ));
   }
 
@@ -221,7 +237,7 @@ class GoLiveInstance : public pp::Instance {
 
     AVStream* stream = avformat_new_stream(av_fmt_octx_, codec);
     stream->codec->codec_id = codec->id;
-    stream->codec->bit_rate = 1000000;
+    stream->codec->bit_rate = 4 * 1000 * 1000;
     stream->codec->height = height;
     stream->codec->width = width;
     stream->codec->pix_fmt = AV_PIX_FMT_YUV420P;
@@ -238,6 +254,31 @@ class GoLiveInstance : public pp::Instance {
       AVLogError(ret);
       return;
     }
+
+    filter_graph_ = avfilter_graph_alloc();
+    avfilter_graph_parse_ptr(
+      filter_graph_,
+      "anullsrc, abuffersink",
+      nullptr,
+      &filter_outputs_,
+      nullptr
+    );
+
+    AVCodec* acodec = avcodec_find_encoder(AV_CODEC_ID_AAC);
+    AVStream* astream = avformat_new_stream(av_fmt_octx_, acodec);
+    AVCodecContext* cctx = astream->codec;
+    cctx->codec_id = acodec->id;
+    cctx->bit_rate = 128 * 1000;
+    cctx->sample_rate = 44100;
+    cctx->channels = 2;
+    cctx->channel_layout = AV_CH_LAYOUT_STEREO;
+    stream->time_base = (AVRational){1, cctx->sample_rate};
+
+    if (av_fmt_octx_->flags & AVFMT_GLOBALHEADER) {
+      cctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
+    }
+
+
     avformat_write_header(av_fmt_octx_, nullptr);
     av_dump_format(av_fmt_octx_, 0, url, 1);
 
@@ -311,7 +352,7 @@ class GoLiveInstance : public pp::Instance {
     return PP_OK;
   }
 
-  void EncodeFrame(int32_t) {
+  void EncodeVideoFrame(int32_t) {
     AVPacket pkt = { 0 };
     av_init_packet(&pkt);
     int got_packet = 0;
@@ -343,22 +384,70 @@ class GoLiveInstance : public pp::Instance {
     }
     av_free_packet(&pkt);
     new_frame_available_ = false;
+    EncodeAudioFrame(0);
   }
 
   void NoOp(int32_t) const {}
 
-  void OnFrame(int32_t result, pp::VideoFrame frame) {
+  void OnVideoFrame(int32_t result, pp::VideoFrame frame) {
     if (!is_encoding_) {
       return;
     }
     CopyVideoFrame(frame);
     bg_thread_.message_loop().PostWork(
-      callback_factory_.NewCallback(&GoLiveInstance::EncodeFrame)
+      callback_factory_.NewCallback(&GoLiveInstance::EncodeVideoFrame)
     );
     video_track_.RecycleFrame(frame);
     video_track_.GetFrame(callback_factory_.NewCallbackWithOutput(
-      &GoLiveInstance::OnFrame
+      &GoLiveInstance::OnVideoFrame
     ));
+  }
+
+  void EncodeAudioFrame(int32_t) {
+    /*if (av_frame_is_writable(current_av_audio_frame_) <= 0) {
+      int ret = av_frame_make_writable(current_av_audio_frame_);
+      if (ret < 0) {
+        AVLog("during av_frame_make_writable");
+        AVLogError(ret);
+        return;
+      }
+    }*/
+
+    int ret = av_buffersink_get_frame(
+      filter_outputs_->filter_ctx,
+      current_av_audio_frame_
+    );
+    if (ret < 0) {
+      Log("error getting audio frame");
+      AVLogError(ret);
+      //av_frame_unref(current_av_audio_frame_);
+      return;
+    }
+
+    AVPacket pkt = {0};
+    av_init_packet(&pkt);
+    pkt.stream_index = 1;
+    int got_packet = 0;
+    ret = avcodec_encode_audio2(
+      av_fmt_octx_->streams[1]->codec,
+      &pkt,
+      current_av_audio_frame_,
+      &got_packet
+    );
+    if (ret < 0) {
+      Log("error during audio encoding");
+      AVLogError(ret);
+      return;
+    }
+
+    if (got_packet) {
+      ret = av_interleaved_write_frame(av_fmt_octx_, &pkt);
+      if (ret < 0) {
+        Log("error while writing audio frame");
+        AVLogError(ret);
+      }
+    }
+    av_free_packet(&pkt);
   }
 
   void Log(const pp::Var& msg) {

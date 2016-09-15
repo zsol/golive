@@ -9,7 +9,7 @@ CONFIG = Release
 
 include $(NACL_SDK_ROOT)/tools/common.mk
 
-LIBS = avformat avcodec avutil x264 ppapi_cpp ppapi pthread nacl_io
+LIBS = avformat avcodec avfilter avutil x264 swresample ppapi_cpp ppapi pthread nacl_io
 
 TARGET = golive
 
@@ -34,4 +34,4 @@ $(eval $(call NMF_RULE,$(TARGET),))
 .PHONY: package
 
 package:
-	zip -x '*.png' -9 golive.zip * pnacl/Release/golive.nmf pnacl/Release/golive.pexe 
+	zip -x '*.png' -9 golive.zip * pnacl/Release/golive.nmf pnacl/Release/golive.pexe
